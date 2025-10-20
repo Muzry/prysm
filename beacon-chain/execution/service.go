@@ -34,6 +34,7 @@ import (
 	ethpb "github.com/OffchainLabs/prysm/v6/proto/prysm/v1alpha1"
 	prysmTime "github.com/OffchainLabs/prysm/v6/time"
 	"github.com/OffchainLabs/prysm/v6/time/slots"
+	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -566,12 +567,18 @@ func (s *Service) initPOWService() {
 				if genHash != [32]byte{} {
 					genHeader, err := s.HeaderByHash(ctx, genHash)
 					if err != nil {
-						err = errors.Wrapf(err, "HeaderByHash, hash=%#x", genHash)
-						s.retryExecutionClientConnection(ctx, err)
-						errorLogger(err, "Unable to retrieve proof-of-stake genesis block data")
-						continue
+						if errors.Is(err, ethereum.NotFound) {
+							log.WithField("hash", genHash).Warn("Genesis block not found in execution client (possibly pruned by EIP-4444), using default genesis block 0")
+							genBlock = 0
+						} else {
+							err = errors.Wrapf(err, "HeaderByHash, hash=%#x", genHash)
+							s.retryExecutionClientConnection(ctx, err)
+							errorLogger(err, "Unable to retrieve proof-of-stake genesis block data")
+							continue
+						}
+					} else {
+						genBlock = genHeader.Number.Uint64()
 					}
-					genBlock = genHeader.Number.Uint64()
 				}
 				s.chainStartData.GenesisBlock = genBlock
 				if err := s.savePowchainData(ctx); err != nil {
